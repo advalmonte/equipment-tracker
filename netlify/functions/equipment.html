@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equipment Info</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 500px; margin: 20px auto; padding: 0 15px; }
+  h1 { font-size: 22px; }
+  .field { margin-bottom: 14px; }
+  label { display: block; font-weight: bold; margin-bottom: 4px; font-size: 14px; color: #333; }
+  input, textarea, select { width: 100%; padding: 8px; font-size: 15px; box-sizing: border-box; }
+  .status { display: inline-block; padding: 4px 10px; border-radius: 4px; color: white; font-weight: bold; }
+  .status-OK { background: #2e7d32; }
+  .status-DueSoon { background: #f9a825; }
+  .status-Overdue { background: #c62828; }
+  button { padding: 10px 16px; font-size: 15px; margin-top: 10px; cursor: pointer; }
+  #saveBtn { background: #1565c0; color: white; border: none; border-radius: 4px; }
+  #editBtn { background: #555; color: white; border: none; border-radius: 4px; }
+  #photoPreview { max-width: 100%; margin-top: 8px; border-radius: 6px; }
+  .readonly-view .edit-only { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Equipment Details</h1>
+<div id="content">Loading...</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const recordId = params.get("id");
+let currentRecord = null;
+let editing = false;
+
+async function loadRecord() {
+  if (!recordId) {
+    document.getElementById("content").innerText = "No equipment ID provided in the link.";
+    return;
+  }
+  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`);
+  const data = await res.json();
+  if (data.error) {
+    document.getElementById("content").innerText = "Error loading record: " + data.error;
+    return;
+  }
+  currentRecord = data;
+  render();
+}
+
+function statusClass(status) {
+  if (!status) return "";
+  return "status-" + status.replace(" ", "");
+}
+
+function render() {
+  const f = currentRecord.fields;
+  const container = document.getElementById("content");
+
+  if (!editing) {
+    container.innerHTML = `
+      <div class="field"><label>Equipment Name</label>${f["Equipment Name"] || ""}</div>
+      <div class="field"><label>Serial Number</label>${f["Serial Number"] || ""}</div>
+      <div class="field"><label>Equipment Type</label>${f["Equipment Type"] || ""}</div>
+      <div class="field"><label>Location</label>${f["Location"] || ""}</div>
+      <div class="field"><label>Signed Off To</label>${f["Signed Off To"] || ""}</div>
+      <div class="field"><label>Last Calibration Date</label>${f["Last Calibration Date"] || ""}</div>
+      <div class="field"><label>Calibration Due Date</label>${f["Calibration Due Date"] || ""}</div>
+      <div class="field"><label>Calibration Status</label><span class="status ${statusClass(f["Calibration Status"])}">${f["Calibration Status"] || ""}</span></div>
+      <div class="field"><label>Notes</label>${f["Notes"] || ""}</div>
+      ${f["Photo"] && f["Photo"][0] ? `<div class="field"><label>Photo</label><img id="photoPreview" src="${f["Photo"][0].url}"></div>` : ""}
+      <button id="editBtn" onclick="toggleEdit()">Edit</button>
+    `;
+  } else {
+    container.innerHTML = `
+      <div class="field"><label>Equipment Name</label><input id="f_name" value="${f["Equipment Name"] || ""}"></div>
+      <div class="field"><label>Serial Number</label><input id="f_serial" value="${f["Serial Number"] || ""}"></div>
+      <div class="field"><label>Equipment Type</label><input id="f_type" value="${f["Equipment Type"] || ""}"></div>
+      <div class="field"><label>Location</label><input id="f_location" value="${f["Location"] || ""}"></div>
+      <div class="field"><label>Signed Off To</label><input id="f_signedoff" value="${f["Signed Off To"] || ""}"></div>
+      <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${f["Last Calibration Date"] || ""}"></div>
+      <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${f["Calibration Due Date"] || ""}"></div>
+      <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${f["Notes"] || ""}</textarea></div>
+      <button id="saveBtn" onclick="saveRecord()">Save Changes</button>
+      <button id="editBtn" onclick="toggleEdit()">Cancel</button>
+    `;
+  }
+}
+
+function toggleEdit() {
+  editing = !editing;
+  render();
+}
+
+async function saveRecord() {
+  const updatedFields = {
+    "Equipment Name": document.getElementById("f_name").value,
+    "Serial Number": document.getElementById("f_serial").value,
+    "Equipment Type": document.getElementById("f_type").value,
+    "Location": document.getElementById("f_location").value,
+    "Signed Off To": document.getElementById("f_signedoff").value,
+    "Last Calibration Date": document.getElementById("f_lastcal").value,
+    "Calibration Due Date": document.getElementById("f_duecal").value,
+    "Notes": document.getElementById("f_notes").value,
+  };
+
+  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: updatedFields }),
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert("Error saving: " + JSON.stringify(data.error));
+    return;
+  }
+  currentRecord = data;
+  editing = false;
+  render();
+}
+
+loadRecord();
+</script>
+</body>
+</html>
