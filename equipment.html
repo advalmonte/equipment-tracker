@@ -92,15 +92,17 @@ function toggleEdit() {
 }
 
 async function saveRecord() {
+  const val = (id) => document.getElementById(id).value.trim() || null;
+
   const updatedFields = {
-    "Equipment Name": document.getElementById("f_name").value,
-    "Serial Number": document.getElementById("f_serial").value,
-    "Equipment Type": document.getElementById("f_type").value,
-    "Location": document.getElementById("f_location").value,
-    "Signed Off To": document.getElementById("f_signedoff").value,
-    "Last Calibration Date": document.getElementById("f_lastcal").value,
-    "Calibration Due Date": document.getElementById("f_duecal").value,
-    "Notes": document.getElementById("f_notes").value,
+    "Equipment Name": val("f_name"),
+    "Serial Number": val("f_serial"),
+    "Equipment Type": val("f_type"),
+    "Location": val("f_location"),
+    "Signed Off To": val("f_signedoff"),
+    "Last Calibration Date": val("f_lastcal"),
+    "Calibration Due Date": val("f_duecal"),
+    "Notes": val("f_notes"),
   };
 
   const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
