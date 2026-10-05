@@ -46,6 +46,34 @@ exports.handler = async function (event) {
       return { statusCode: response.status, body: JSON.stringify(data) };
     }
 
+    // Photo upload: adds the new photo, then removes any older ones
+    if (event.httpMethod === "POST") {
+      const { filename, contentType, file } = JSON.parse(event.body);
+      const up = await fetch(
+        `https://content.airtable.com/v0/${BASE_ID}/${recordId}/Photo/uploadAttachment`,
+        {
+          method: "POST",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ contentType, file, filename }),
+        }
+      );
+      const upData = await up.json();
+      if (!up.ok) return { statusCode: up.status, body: JSON.stringify(upData) };
+
+      const photos = (upData.fields && upData.fields.Photo) || [];
+      if (photos.length > 1) {
+        const keep = photos[photos.length - 1];
+        const r = await fetch(url, {
+          method: "PATCH",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ fields: { Photo: [{ id: keep.id }] } }),
+        });
+        const d = await r.json();
+        return { statusCode: r.status, body: JSON.stringify(d) };
+      }
+      return { statusCode: 200, body: JSON.stringify(upData) };
+    }
+
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   } catch (error) {
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
