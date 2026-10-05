@@ -199,6 +199,8 @@ function render() {
           ${row("Signed off to", badge(f["Signed Off To"], PERSON_COLORS))}
           ${row("Last calibration", esc(f["Last Calibration Date"]))}
           ${row("Calibration due", esc(f["Calibration Due Date"]))}
+          ${row("Calibration vendor", esc(f["Calibration Vendor"]))}
+          ${row("Calibration cert", esc(f["Calibration Cert."]))}
         </div>
         <div class="notes"><div class="k">Notes</div><div class="v">${esc(f["Notes"]) || "&mdash;"}</div></div>
         <div class="actions">
@@ -220,6 +222,8 @@ function render() {
         <div class="field"><label>Signed Off To</label>${pick("f_signedoff", "Signed Off To", f["Signed Off To"])}</div>
         <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${esc(f["Last Calibration Date"])}"></div>
         <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${esc(f["Calibration Due Date"])}"></div>
+        <div class="field"><label>Calibration Vendor</label>${pick("f_vendor", "Calibration Vendor", f["Calibration Vendor"])}</div>
+        <div class="field"><label>Calibration Cert.</label>${pick("f_cert", "Calibration Cert.", f["Calibration Cert."])}</div>
         <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${esc(f["Notes"])}</textarea></div>
         <button id="saveBtn" onclick="saveRecord()">Save Changes</button>
         <button id="cancelBtn" onclick="toggleEdit()">Cancel</button>
@@ -245,6 +249,8 @@ async function saveRecord() {
     "Signed Off To": val("f_signedoff"),
     "Last Calibration Date": val("f_lastcal"),
     "Calibration Due Date": val("f_duecal"),
+    "Calibration Vendor": val("f_vendor"),
+    "Calibration Cert.": val("f_cert"),
     "Notes": val("f_notes"),
   };
 
