@@ -10,15 +10,14 @@
   .field { margin-bottom: 14px; }
   label { display: block; font-weight: bold; margin-bottom: 4px; font-size: 14px; color: #333; }
   input, textarea, select { width: 100%; padding: 8px; font-size: 15px; box-sizing: border-box; }
-  .status { display: inline-block; padding: 4px 10px; border-radius: 4px; color: white; font-weight: bold; }
-  .status-OK { background: #2e7d32; }
-  .status-DueSoon { background: #f9a825; }
-  .status-Overdue { background: #c62828; }
-  button { padding: 10px 16px; font-size: 15px; margin-top: 10px; cursor: pointer; }
-  #saveBtn { background: #1565c0; color: white; border: none; border-radius: 4px; }
-  #editBtn { background: #555; color: white; border: none; border-radius: 4px; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 14px; font-weight: bold; font-size: 14px; }
+  .status-OK { background: #2e7d32; color: #fff; }
+  .status-DueSoon { background: #f9a825; color: #000; }
+  .status-Overdue { background: #c62828; color: #fff; }
+  button { padding: 10px 16px; font-size: 15px; margin-top: 10px; margin-right: 6px; cursor: pointer; border: none; border-radius: 4px; color: #fff; }
+  #saveBtn { background: #1565c0; }
+  #editBtn, #cancelBtn { background: #555; }
   #photoPreview { max-width: 100%; margin-top: 8px; border-radius: 6px; }
-  .readonly-view .edit-only { display: none; }
 </style>
 </head>
 <body>
@@ -30,58 +29,106 @@
 const params = new URLSearchParams(window.location.search);
 const recordId = params.get("id");
 let currentRecord = null;
+let options = {};
 let editing = false;
+
+// Badge colors (background, text). Anything not listed shows as gray.
+const LOCATION_COLORS = {
+  "LA": ["#0b4fb3", "#fff"],
+  "Kanona": ["#b45f06", "#fff"],
+  "Personal": ["#ffd966", "#000"],
+  "Whitby": ["#7c3aed", "#fff"],
+  "Willowbrook": ["#e5e7eb", "#000"],
+};
+const PERSON_COLORS = {
+  "X. Wang": ["#c6f3ee", "#000"],
+  "M. Straube": ["#cdf3d4", "#000"],
+  "J. Miller": ["#ffeab6", "#000"],
+  "G. Cruz": ["#ffd9c9", "#000"],
+  "A. Valmonte": ["#ffd0e8", "#000"],
+};
+
+function esc(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function badge(value, colorMap) {
+  if (!value) return "";
+  const c = colorMap[value] || ["#e5e7eb", "#000"];
+  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(value)}</span>`;
+}
+
+function statusClass(status) {
+  return status ? "status-" + status.replace(" ", "") : "";
+}
 
 async function loadRecord() {
   if (!recordId) {
     document.getElementById("content").innerText = "No equipment ID provided in the link.";
     return;
   }
-  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`);
-  const data = await res.json();
-  if (data.error) {
-    document.getElementById("content").innerText = "Error loading record: " + data.error;
-    return;
+  try {
+    const [recRes, optRes] = await Promise.all([
+      fetch(`/.netlify/functions/equipment?id=${recordId}`),
+      fetch(`/.netlify/functions/equipment?schema=1`),
+    ]);
+    const data = await recRes.json();
+    if (data.error) {
+      document.getElementById("content").innerText = "Error loading record: " + JSON.stringify(data.error);
+      return;
+    }
+    currentRecord = data;
+    try {
+      const o = await optRes.json();
+      if (!o.error) options = o;
+    } catch (e) {}
+    render();
+  } catch (e) {
+    document.getElementById("content").innerText = "Error loading record: " + e.message;
   }
-  currentRecord = data;
-  render();
 }
 
-function statusClass(status) {
-  if (!status) return "";
-  return "status-" + status.replace(" ", "");
+// Dropdown if Airtable options are available, otherwise a text box
+function pick(id, field, current) {
+  const list = options[field];
+  if (!list) return `<input id="${id}" value="${esc(current)}">`;
+  const opts = ['<option value=""></option>']
+    .concat(list.map((o) => `<option value="${esc(o)}"${o === current ? " selected" : ""}>${esc(o)}</option>`));
+  return `<select id="${id}">${opts.join("")}</select>`;
 }
 
 function render() {
   const f = currentRecord.fields;
-  const container = document.getElementById("content");
+  const c = document.getElementById("content");
 
   if (!editing) {
-    container.innerHTML = `
-      <div class="field"><label>Equipment Name</label>${f["Equipment Name"] || ""}</div>
-      <div class="field"><label>Serial Number</label>${f["Serial Number"] || ""}</div>
-      <div class="field"><label>Equipment Type</label>${f["Equipment Type"] || ""}</div>
-      <div class="field"><label>Location</label>${f["Location"] || ""}</div>
-      <div class="field"><label>Signed Off To</label>${f["Signed Off To"] || ""}</div>
-      <div class="field"><label>Last Calibration Date</label>${f["Last Calibration Date"] || ""}</div>
-      <div class="field"><label>Calibration Due Date</label>${f["Calibration Due Date"] || ""}</div>
-      <div class="field"><label>Calibration Status</label><span class="status ${statusClass(f["Calibration Status"])}">${f["Calibration Status"] || ""}</span></div>
-      <div class="field"><label>Notes</label>${f["Notes"] || ""}</div>
-      ${f["Photo"] && f["Photo"][0] ? `<div class="field"><label>Photo</label><img id="photoPreview" src="${f["Photo"][0].url}"></div>` : ""}
+    c.innerHTML = `
+      <div class="field"><label>Equipment Name</label>${esc(f["Equipment Name"])}</div>
+      <div class="field"><label>Serial Number</label>${esc(f["Serial Number"])}</div>
+      <div class="field"><label>Equipment Type</label>${esc(f["Equipment Type"])}</div>
+      <div class="field"><label>Location</label>${badge(f["Location"], LOCATION_COLORS)}</div>
+      <div class="field"><label>Signed Off To</label>${badge(f["Signed Off To"], PERSON_COLORS)}</div>
+      <div class="field"><label>Last Calibration Date</label>${esc(f["Last Calibration Date"])}</div>
+      <div class="field"><label>Calibration Due Date</label>${esc(f["Calibration Due Date"])}</div>
+      <div class="field"><label>Calibration Status</label>${f["Calibration Status"] ? `<span class="badge ${statusClass(f["Calibration Status"])}">${esc(f["Calibration Status"])}</span>` : ""}</div>
+      <div class="field"><label>Notes</label>${esc(f["Notes"])}</div>
+      ${f["Photo"] && f["Photo"][0] ? `<div class="field"><label>Photo</label><img id="photoPreview" src="${esc(f["Photo"][0].url)}"></div>` : ""}
       <button id="editBtn" onclick="toggleEdit()">Edit</button>
     `;
   } else {
-    container.innerHTML = `
-      <div class="field"><label>Equipment Name</label><input id="f_name" value="${f["Equipment Name"] || ""}"></div>
-      <div class="field"><label>Serial Number</label><input id="f_serial" value="${f["Serial Number"] || ""}"></div>
-      <div class="field"><label>Equipment Type</label><input id="f_type" value="${f["Equipment Type"] || ""}"></div>
-      <div class="field"><label>Location</label><input id="f_location" value="${f["Location"] || ""}"></div>
-      <div class="field"><label>Signed Off To</label><input id="f_signedoff" value="${f["Signed Off To"] || ""}"></div>
-      <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${f["Last Calibration Date"] || ""}"></div>
-      <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${f["Calibration Due Date"] || ""}"></div>
-      <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${f["Notes"] || ""}</textarea></div>
+    c.innerHTML = `
+      <div class="field"><label>Equipment Name</label><input id="f_name" value="${esc(f["Equipment Name"])}"></div>
+      <div class="field"><label>Serial Number</label><input id="f_serial" value="${esc(f["Serial Number"])}"></div>
+      <div class="field"><label>Equipment Type</label>${pick("f_type", "Equipment Type", f["Equipment Type"])}</div>
+      <div class="field"><label>Location</label>${pick("f_location", "Location", f["Location"])}</div>
+      <div class="field"><label>Signed Off To</label>${pick("f_signedoff", "Signed Off To", f["Signed Off To"])}</div>
+      <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${esc(f["Last Calibration Date"])}"></div>
+      <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${esc(f["Calibration Due Date"])}"></div>
+      <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${esc(f["Notes"])}</textarea></div>
       <button id="saveBtn" onclick="saveRecord()">Save Changes</button>
-      <button id="editBtn" onclick="toggleEdit()">Cancel</button>
+      <button id="cancelBtn" onclick="toggleEdit()">Cancel</button>
     `;
   }
 }
@@ -93,7 +140,6 @@ function toggleEdit() {
 
 async function saveRecord() {
   const val = (id) => document.getElementById(id).value.trim() || null;
-
   const updatedFields = {
     "Equipment Name": val("f_name"),
     "Serial Number": val("f_serial"),
