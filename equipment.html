@@ -110,6 +110,7 @@ async function loadRecord() {
   }
 }
 
+// Dropdown if Airtable has options for the field, otherwise a text box
 function pick(id, field, current) {
   const list = options[field];
   if (!list) return `<input id="${id}" value="${esc(current)}">`;
@@ -177,81 +178,26 @@ function render() {
       : `<div class="no-photo">No photo yet</div>`;
     const status = f["Calibration Status"]
       ? `<span class="badge ${statusClass(f["Calibration Status"])}">${esc(f["Calibration Status"])}</span>` : "";
+    const subParts = [];
+    if (f["Equipment Type"]) subParts.push(esc(f["Equipment Type"]));
+    if (f["Manufacturer"]) subParts.push(esc(f["Manufacturer"]));
+    const sub = subParts.join(" &middot; ");
     c.innerHTML = `
       <div class="card">
         ${photo}
         <div class="head">
           <h1>${esc(f["Equipment Name"]) || "Unnamed equipment"}</h1>
-          <div class="sub">${esc(f["Equipment Type"])}${f["Equipment Type"] && f["Serial Number"] ? " &middot; " : ""}${f["Serial Number"] ? "S/N " + esc(f["Serial Number"]) : ""}</div>
+          <div class="sub">${sub}</div>
           <div class="badges">${status}${badge(f["Location"], LOCATION_COLORS)}</div>
         </div>
       </div>
       <div class="card">
         <div class="rows">
+          ${row("Manufacturer", esc(f["Manufacturer"]))}
+          ${row("Model number", esc(f["Model Number"]))}
+          ${row("Serial number", esc(f["Serial Number"]))}
           ${row("Signed off to", badge(f["Signed Off To"], PERSON_COLORS))}
           ${row("Last calibration", esc(f["Last Calibration Date"]))}
           ${row("Calibration due", esc(f["Calibration Due Date"]))}
         </div>
-        <div class="notes"><div class="k">Notes</div><div class="v">${esc(f["Notes"]) || "&mdash;"}</div></div>
-        <div class="actions">
-          <button id="editBtn" onclick="toggleEdit()">Edit</button>
-          <button id="photoBtn" onclick="document.getElementById('photoInput').click()">${hasPhoto ? "Change photo" : "Add photo"}</button>
-          <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="uploadPhoto(this)">
-        </div>
-      </div>
-    `;
-  } else {
-    c.innerHTML = `
-      <div class="card form">
-        <div class="field"><label>Equipment Name</label><input id="f_name" value="${esc(f["Equipment Name"])}"></div>
-        <div class="field"><label>Serial Number</label><input id="f_serial" value="${esc(f["Serial Number"])}"></div>
-        <div class="field"><label>Equipment Type</label>${pick("f_type", "Equipment Type", f["Equipment Type"])}</div>
-        <div class="field"><label>Location</label>${pick("f_location", "Location", f["Location"])}</div>
-        <div class="field"><label>Signed Off To</label>${pick("f_signedoff", "Signed Off To", f["Signed Off To"])}</div>
-        <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${esc(f["Last Calibration Date"])}"></div>
-        <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${esc(f["Calibration Due Date"])}"></div>
-        <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${esc(f["Notes"])}</textarea></div>
-        <button id="saveBtn" onclick="saveRecord()">Save Changes</button>
-        <button id="cancelBtn" onclick="toggleEdit()">Cancel</button>
-      </div>
-    `;
-  }
-}
-
-function toggleEdit() {
-  editing = !editing;
-  render();
-}
-
-async function saveRecord() {
-  const val = (id) => document.getElementById(id).value.trim() || null;
-  const updatedFields = {
-    "Equipment Name": val("f_name"),
-    "Serial Number": val("f_serial"),
-    "Equipment Type": val("f_type"),
-    "Location": val("f_location"),
-    "Signed Off To": val("f_signedoff"),
-    "Last Calibration Date": val("f_lastcal"),
-    "Calibration Due Date": val("f_duecal"),
-    "Notes": val("f_notes"),
-  };
-
-  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fields: updatedFields }),
-  });
-  const data = await res.json();
-  if (data.error) {
-    alert("Error saving: " + JSON.stringify(data.error));
-    return;
-  }
-  currentRecord = data;
-  editing = false;
-  render();
-}
-
-loadRecord();
-</script>
-</body>
-</html>
+        <div class="notes"><div
