@@ -200,4 +200,70 @@ function render() {
           ${row("Last calibration", esc(f["Last Calibration Date"]))}
           ${row("Calibration due", esc(f["Calibration Due Date"]))}
         </div>
-        <div class="notes"><div
+        <div class="notes"><div class="k">Notes</div><div class="v">${esc(f["Notes"]) || "&mdash;"}</div></div>
+        <div class="actions">
+          <button id="editBtn" onclick="toggleEdit()">Edit</button>
+          <button id="photoBtn" onclick="document.getElementById('photoInput').click()">${hasPhoto ? "Change photo" : "Add photo"}</button>
+          <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="uploadPhoto(this)">
+        </div>
+      </div>
+    `;
+  } else {
+    c.innerHTML = `
+      <div class="card form">
+        <div class="field"><label>Equipment Name</label><input id="f_name" value="${esc(f["Equipment Name"])}"></div>
+        <div class="field"><label>Manufacturer</label>${pick("f_manufacturer", "Manufacturer", f["Manufacturer"])}</div>
+        <div class="field"><label>Model Number</label>${pick("f_model", "Model Number", f["Model Number"])}</div>
+        <div class="field"><label>Serial Number</label><input id="f_serial" value="${esc(f["Serial Number"])}"></div>
+        <div class="field"><label>Equipment Type</label>${pick("f_type", "Equipment Type", f["Equipment Type"])}</div>
+        <div class="field"><label>Location</label>${pick("f_location", "Location", f["Location"])}</div>
+        <div class="field"><label>Signed Off To</label>${pick("f_signedoff", "Signed Off To", f["Signed Off To"])}</div>
+        <div class="field"><label>Last Calibration Date</label><input type="date" id="f_lastcal" value="${esc(f["Last Calibration Date"])}"></div>
+        <div class="field"><label>Calibration Due Date</label><input type="date" id="f_duecal" value="${esc(f["Calibration Due Date"])}"></div>
+        <div class="field"><label>Notes</label><textarea id="f_notes" rows="4">${esc(f["Notes"])}</textarea></div>
+        <button id="saveBtn" onclick="saveRecord()">Save Changes</button>
+        <button id="cancelBtn" onclick="toggleEdit()">Cancel</button>
+      </div>
+    `;
+  }
+}
+
+function toggleEdit() {
+  editing = !editing;
+  render();
+}
+
+async function saveRecord() {
+  const val = (id) => document.getElementById(id).value.trim() || null;
+  const updatedFields = {
+    "Equipment Name": val("f_name"),
+    "Manufacturer": val("f_manufacturer"),
+    "Model Number": val("f_model"),
+    "Serial Number": val("f_serial"),
+    "Equipment Type": val("f_type"),
+    "Location": val("f_location"),
+    "Signed Off To": val("f_signedoff"),
+    "Last Calibration Date": val("f_lastcal"),
+    "Calibration Due Date": val("f_duecal"),
+    "Notes": val("f_notes"),
+  };
+
+  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: updatedFields }),
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert("Error saving: " + JSON.stringify(data.error));
+    return;
+  }
+  currentRecord = data;
+  editing = false;
+  render();
+}
+
+loadRecord();
+</script>
+</body>
+</html>
