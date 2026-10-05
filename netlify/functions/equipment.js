@@ -46,9 +46,16 @@ exports.handler = async function (event) {
       return { statusCode: response.status, body: JSON.stringify(data) };
     }
 
-    // Photo upload: adds the new photo, then removes any older ones
+    // Photo upload: add the new photo, then keep only the newest one
     if (event.httpMethod === "POST") {
       const { filename, contentType, file } = JSON.parse(event.body);
+
+      // 1. Note which photos exist before the upload
+      const beforeRes = await fetch(url, { headers: authHeader });
+      const before = await beforeRes.json();
+      const oldIds = ((before.fields && before.fields.Photo) || []).map((p) => p.id);
+
+      // 2. Upload the new photo
       const up = await fetch(
         `https://content.airtable.com/v0/${BASE_ID}/${recordId}/Photo/uploadAttachment`,
         {
@@ -60,9 +67,15 @@ exports.handler = async function (event) {
       const upData = await up.json();
       if (!up.ok) return { statusCode: up.status, body: JSON.stringify(upData) };
 
-      const photos = (upData.fields && upData.fields.Photo) || [];
-      if (photos.length > 1) {
-        const keep = photos[photos.length - 1];
+      // 3. Re-read the record so we see exactly what Airtable now holds
+      const afterRes = await fetch(url, { headers: authHeader });
+      const after = await afterRes.json();
+      const photos = (after.fields && after.fields.Photo) || [];
+      const fresh = photos.filter((p) => !oldIds.includes(p.id));
+
+      // 4. If older photos are still there, keep only the new one
+      if (fresh.length > 0 && photos.length > fresh.length) {
+        const keep = fresh[fresh.length - 1];
         const r = await fetch(url, {
           method: "PATCH",
           headers: { ...authHeader, "Content-Type": "application/json" },
@@ -71,7 +84,7 @@ exports.handler = async function (event) {
         const d = await r.json();
         return { statusCode: r.status, body: JSON.stringify(d) };
       }
-      return { statusCode: 200, body: JSON.stringify(upData) };
+      return { statusCode: 200, body: JSON.stringify(after) };
     }
 
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
