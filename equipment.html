@@ -49,6 +49,112 @@ let currentRecord = null;
 let options = {};
 let editing = false;
 
+// ---- Team password handling ----
+function getPw() {
+  try { return localStorage.getItem("teamPassword") || ""; } catch (e) { return ""; }
+}
+function setPw(v) {
+  try { localStorage.setItem("teamPassword", v); } catch (e) {}
+}
+function clearPw() {
+  try { localStorage.removeItem("teamPassword"); } catch (e) {}
+}
+
+function showLogin(msg) {
+  document.getElementById("content").innerHTML = `
+    <div class="card form">
+      <h1 style="margin-top:0">Team login</h1>
+      <div class="field"><label>Team password</label><input type="password" id="pw" autocomplete="current-password"></div>
+      ${msg ? `<div style="color:#c62828;margin-bottom:10px">${esc(msg)}</div>` : ""}
+      <button id="saveBtn" onclick="submitPw()">Continue</button>
+    </div>`;
+  document.getElementById("pw").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitPw();
+  });
+}
+
+function submitPw() {
+  const v = document.getElementById("pw").value;
+  if (!v) return;
+  setPw(v);
+  loadRecord();
+}
+
+// ---- Who is editing ----
+function getName() {
+  try { return localStorage.getItem("editorName") || ""; } catch (e) { return ""; }
+}
+function setName(v) {
+  try { localStorage.setItem("editorName", v); } catch (e) {}
+}
+function clearName() {
+  try { localStorage.removeItem("editorName"); } catch (e) {}
+}
+
+async function showWho(msg) {
+  document.getElementById("content").innerHTML = `
+    <div class="card form">
+      <h1 style="margin-top:0">Who are you?</h1>
+      <div id="whoBody">Loading...</div>
+    </div>`;
+  try {
+    const res = await apiFetch(`/.netlify/functions/equipment?team=1`);
+    const names = await res.json();
+    if (!Array.isArray(names) || names.length === 0) {
+      document.getElementById("whoBody").innerText =
+        "No team names are set up yet. Add TEAM_EMAILS in Netlify, then reload.";
+      return;
+    }
+    const opts = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    document.getElementById("whoBody").innerHTML = `
+      ${msg ? `<div style="color:#c62828;margin-bottom:10px">${esc(msg)}</div>` : ""}
+      <div class="field"><label>Pick your name</label>
+        <select id="whoSel"><option value=""></option>${opts}</select></div>
+      <button id="saveBtn" onclick="submitWho()">Continue</button>`;
+  } catch (e) {
+    if (e.message !== "auth") document.getElementById("whoBody").innerText = "Error: " + e.message;
+  }
+}
+
+function submitWho() {
+  const v = document.getElementById("whoSel").value;
+  if (!v) return;
+  setName(v);
+  loadRecord();
+}
+
+function switchUser() {
+  clearName();
+  loadRecord();
+}
+
+function fmtDate(v) {
+  if (!v) return "";
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString();
+}
+
+// Every request to the backend goes through here so the password and name are attached
+async function apiFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers, {
+    "x-team-password": getPw(),
+    "x-editor-name": encodeURIComponent(getName()),
+  });
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    clearPw();
+    showLogin("Wrong password. Try again.");
+    throw new Error("auth");
+  }
+  if (res.status === 403) {
+    clearName();
+    showWho("That name isn't recognized. Pick again.");
+    throw new Error("auth");
+  }
+  return res;
+}
+
 const LOCATION_COLORS = {
   "LA": ["#0b4fb3", "#fff"],
   "Kanona": ["#b45f06", "#fff"],
@@ -89,10 +195,19 @@ async function loadRecord() {
     document.getElementById("content").innerText = "No equipment ID provided in the link.";
     return;
   }
+  if (!getPw()) {
+    showLogin();
+    return;
+  }
+  if (!getName()) {
+    showWho();
+    return;
+  }
+  document.getElementById("content").innerText = "Loading...";
   try {
     const [recRes, optRes] = await Promise.all([
-      fetch(`/.netlify/functions/equipment?id=${recordId}`),
-      fetch(`/.netlify/functions/equipment?schema=1`),
+      apiFetch(`/.netlify/functions/equipment?id=${recordId}`),
+      apiFetch(`/.netlify/functions/equipment?schema=1`),
     ]);
     const data = await recRes.json();
     if (data.error) {
@@ -106,6 +221,7 @@ async function loadRecord() {
     } catch (e) {}
     render();
   } catch (e) {
+    if (e.message === "auth") return;
     document.getElementById("content").innerText = "Error loading record: " + e.message;
   }
 }
@@ -152,7 +268,7 @@ async function uploadPhoto(input) {
   btn.textContent = "Uploading...";
   try {
     const base64 = await resizeImage(file, 1600, 0.8);
-    const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
+    const res = await apiFetch(`/.netlify/functions/equipment?id=${recordId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ filename: "equipment-photo.jpg", contentType: "image/jpeg", file: base64 }),
@@ -162,6 +278,7 @@ async function uploadPhoto(input) {
     currentRecord.fields.Photo = data.fields.Photo;
     render();
   } catch (e) {
+    if (e.message === "auth") return;
     alert("Photo upload failed: " + e.message);
     render();
   }
@@ -201,6 +318,8 @@ function render() {
           ${row("Calibration due", esc(f["Calibration Due Date"]))}
           ${row("Calibration vendor", esc(f["Calibration Vendor"]))}
           ${row("Calibration cert", esc(f["Calibration Cert."]))}
+          ${row("Owner", esc(f["Entry Created By"] && f["Entry Created By"].name))}
+          ${row("Last edited", esc(fmtDate(f["Last Edited"])))}
         </div>
         <div class="notes"><div class="k">Notes</div><div class="v">${esc(f["Notes"]) || "&mdash;"}</div></div>
         <div class="actions">
@@ -209,6 +328,7 @@ function render() {
           <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="uploadPhoto(this)">
         </div>
       </div>
+      <div class="sub" style="text-align:center">Editing as ${esc(getName())} &middot; <a href="#" onclick="switchUser();return false;">Switch</a></div>
     `;
   } else {
     c.innerHTML = `
@@ -254,11 +374,31 @@ async function saveRecord() {
     "Notes": val("f_notes"),
   };
 
-  const res = await fetch(`/.netlify/functions/equipment?id=${recordId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fields: updatedFields }),
+  // Only send what actually changed, so a save with no changes doesn't count as an edit
+  const old = currentRecord.fields;
+  const changed = {};
+  Object.keys(updatedFields).forEach((k) => {
+    const before = old[k] == null ? null : String(old[k]).trim() || null;
+    if (before !== updatedFields[k]) changed[k] = updatedFields[k];
   });
+  if (Object.keys(changed).length === 0) {
+    editing = false;
+    render();
+    return;
+  }
+
+  let res;
+  try {
+    res = await apiFetch(`/.netlify/functions/equipment?id=${recordId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: changed }),
+    });
+  } catch (e) {
+    if (e.message === "auth") return;
+    alert("Error saving: " + e.message);
+    return;
+  }
   const data = await res.json();
   if (data.error) {
     alert("Error saving: " + JSON.stringify(data.error));
