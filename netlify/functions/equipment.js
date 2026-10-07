@@ -1,9 +1,71 @@
+const crypto = require("crypto");
+
+// Compares two strings without leaking timing information
+function sameSecret(a, b) {
+  const ha = crypto.createHash("sha256").update(String(a)).digest();
+  const hb = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// TEAM_EMAILS in Netlify looks like: {"A. Valmonte":"a@x.com","G. Cruz":"g@x.com"}
+function readTeam() {
+  try {
+    const t = JSON.parse(process.env.TEAM_EMAILS || "{}");
+    return t && typeof t === "object" ? t : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// Builds the fields that hand ownership to the editor and flag the old owner for an email
+function ownershipFields(record, editorEmail) {
+  const old = record && record.fields && record.fields["Entry Created By"];
+  const fields = { "Entry Created By": { email: editorEmail } };
+  const ownerChanged =
+    old && old.id && old.email && old.email.toLowerCase() !== editorEmail.toLowerCase();
+  if (ownerChanged) {
+    fields["Previous Owner"] = { id: old.id };
+    fields["Edit Notice Stamp"] = new Date().toISOString();
+  }
+  return fields;
+}
+
 exports.handler = async function (event) {
   const TOKEN = process.env.AIRTABLE_TOKEN;
   const BASE_ID = process.env.AIRTABLE_BASE_ID;
+  const TEAM_PASSWORD = process.env.TEAM_PASSWORD;
   const TABLE_NAME = "Equipment";
   const authHeader = { Authorization: `Bearer ${TOKEN}` };
   const params = event.queryStringParameters || {};
+  const headers = event.headers || {};
+
+  // Team password check. Refuses everything if no password has been set.
+  if (!TEAM_PASSWORD) {
+    return { statusCode: 500, body: JSON.stringify({ error: "TEAM_PASSWORD is not set in Netlify" }) };
+  }
+  if (!sameSecret(headers["x-team-password"] || "", TEAM_PASSWORD)) {
+    return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
+  }
+
+  const team = readTeam();
+
+  // List of team names for the "Who are you?" screen
+  if (params.team) {
+    return { statusCode: 200, body: JSON.stringify(Object.keys(team)) };
+  }
+
+  // Who is making this change (only needed for edits and photo uploads)
+  let editorName = "";
+  try {
+    editorName = decodeURIComponent(headers["x-editor-name"] || "");
+  } catch (e) {
+    editorName = "";
+  }
+  const editorEmail = team[editorName];
+  const isWrite = event.httpMethod === "PATCH" || event.httpMethod === "POST";
+  if (isWrite && !editorEmail) {
+    return { statusCode: 403, body: JSON.stringify({ error: "Unknown editor" }) };
+  }
 
   try {
     // Dropdown options request
@@ -35,24 +97,32 @@ exports.handler = async function (event) {
       return { statusCode: response.status, body: JSON.stringify(data) };
     }
 
+    // Edit: save the changes and make the editor the new owner
     if (event.httpMethod === "PATCH") {
       const body = JSON.parse(event.body);
+
+      const curRes = await fetch(url, { headers: authHeader });
+      const cur = await curRes.json();
+      if (!curRes.ok) return { statusCode: curRes.status, body: JSON.stringify(cur) };
+
+      const fields = Object.assign({}, body.fields, ownershipFields(cur, editorEmail));
       const response = await fetch(url, {
         method: "PATCH",
         headers: { ...authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ fields: body.fields }),
+        body: JSON.stringify({ fields }),
       });
       const data = await response.json();
       return { statusCode: response.status, body: JSON.stringify(data) };
     }
 
-    // Photo upload: add the new photo, then keep only the newest one
+    // Photo upload: add the new photo, keep only the newest one, and update ownership
     if (event.httpMethod === "POST") {
       const { filename, contentType, file } = JSON.parse(event.body);
 
-      // 1. Note which photos exist before the upload
+      // 1. Note which photos exist (and who owns the item) before the upload
       const beforeRes = await fetch(url, { headers: authHeader });
       const before = await beforeRes.json();
+      if (!beforeRes.ok) return { statusCode: beforeRes.status, body: JSON.stringify(before) };
       const oldIds = ((before.fields && before.fields.Photo) || []).map((p) => p.id);
 
       // 2. Upload the new photo
@@ -73,18 +143,18 @@ exports.handler = async function (event) {
       const photos = (after.fields && after.fields.Photo) || [];
       const fresh = photos.filter((p) => !oldIds.includes(p.id));
 
-      // 4. If older photos are still there, keep only the new one
+      // 4. One final update: drop older photos if needed, and hand ownership to the editor
+      const fields = ownershipFields(before, editorEmail);
       if (fresh.length > 0 && photos.length > fresh.length) {
-        const keep = fresh[fresh.length - 1];
-        const r = await fetch(url, {
-          method: "PATCH",
-          headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify({ fields: { Photo: [{ id: keep.id }] } }),
-        });
-        const d = await r.json();
-        return { statusCode: r.status, body: JSON.stringify(d) };
+        fields.Photo = [{ id: fresh[fresh.length - 1].id }];
       }
-      return { statusCode: 200, body: JSON.stringify(after) };
+      const r = await fetch(url, {
+        method: "PATCH",
+        headers: { ...authHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({ fields }),
+      });
+      const d = await r.json();
+      return { statusCode: r.status, body: JSON.stringify(d) };
     }
 
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
